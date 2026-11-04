@@ -1,0 +1,2 @@
+Kendi fontlarını (.ttf / .otf / .ttc) bu klasöre koy.
+Uygulamayı yeniden başlatınca font listesinde görünürler.

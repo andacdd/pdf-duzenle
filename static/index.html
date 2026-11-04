@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF Düzenle</title>
+<style>
+  :root {
+    --bg: #f1f3f4; --panel: #fff; --ink: #202124; --muted: #5f6368;
+    --line: #dadce0; --accent: #1a73e8; --accent-soft: rgba(26,115,232,.16);
+    --danger: #d93025; --shadow: 0 1px 3px rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+
+  /* Üst çubuk */
+  header { position: sticky; top: 0; z-index: 20; height: 56px; display: flex; align-items: center;
+           gap: 8px; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .logo { font-weight: 600; font-size: 17px; margin-right: 8px; white-space: nowrap; }
+  .logo span { color: var(--accent); }
+  .fname { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .grow { flex: 1; }
+  .btn { height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--line);
+         background: var(--panel); cursor: pointer; white-space: nowrap; }
+  .btn:hover:not(:disabled) { background: #f6f8fc; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: #1765cc; }
+
+  /* Boş ekran */
+  #empty { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 56px); padding: 24px; }
+  .drop { width: min(560px, 100%); padding: 56px 24px; text-align: center; background: var(--panel);
+          border: 2px dashed var(--line); border-radius: 16px; cursor: pointer; }
+  .drop.over { border-color: var(--accent); background: #e8f0fe; }
+  .drop h1 { font-size: 22px; font-weight: 500; margin: 12px 0 6px; }
+  .drop p { color: var(--muted); margin: 0; }
+  .drop .big { font-size: 44px; }
+
+  /* Sayfalar */
+  #pages { display: none; flex-direction: column; align-items: center; gap: 20px; padding: 24px 16px 96px; }
+  .page { position: relative; background: #fff; box-shadow: var(--shadow); user-select: none; }
+  .page img { display: block; width: 100%; height: 100%; pointer-events: none; }
+  .page .layer { position: absolute; inset: 0; cursor: text; }
+  .page .num { position: absolute; right: -2px; bottom: -22px; font-size: 12px; color: var(--muted); }
+  .sp { position: absolute; border-radius: 2px; cursor: pointer; }
+  .sp:hover { outline: 1px solid rgba(26,115,232,.55); }
+  .sp.sel { background: var(--accent-soft); outline: 1.5px solid var(--accent); cursor: move; }
+  .sp.lifted { background: #fff; outline: 1px dashed var(--line); }
+  .ghost { position: absolute; z-index: 4; pointer-events: none; background-repeat: no-repeat;
+           outline: 1.5px solid var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,.18); }
+  body.moving, body.moving * { cursor: move !important; }
+  .band { position: absolute; border: 1px solid var(--accent); background: rgba(26,115,232,.08); pointer-events: none; }
+  .inline-edit { position: absolute; z-index: 5; margin: 0; padding: 0 2px; border: none;
+                 outline: 2px solid var(--accent); background: #fff; white-space: pre; min-width: 40px;
+                 box-shadow: 0 2px 6px rgba(0,0,0,.2); }
+
+  /* Yüzen araç çubuğu */
+  #tb { position: fixed; z-index: 30; display: none; align-items: center; gap: 4px; padding: 6px;
+        background: var(--panel); border-radius: 10px; box-shadow: var(--shadow); }
+  #tb input[type=text] { width: 170px; height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; }
+  #tb input[type=number] { width: 58px; height: 32px; padding: 0 4px 0 8px; border: 1px solid var(--line); border-radius: 6px; }
+  #tb .ic { width: 32px; height: 32px; border: none; border-radius: 6px; background: none; cursor: pointer; font-size: 15px; }
+  #tb .ic:hover { background: #f1f3f4; }
+  #tb .ic.on { background: #e8f0fe; color: var(--accent); }
+  #tb .ic.del { color: var(--danger); }
+  #tb input[type=color] { width: 32px; height: 32px; padding: 2px; border: none; background: none; cursor: pointer; }
+  #tb .sep { width: 1px; height: 22px; background: var(--line); margin: 0 2px; }
+  #tb .count { color: var(--muted); font-size: 12px; padding: 0 6px; white-space: nowrap; }
+
+  /* Alt ipucu ve bildirim */
+  #hint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 10; display: none;
+          padding: 8px 14px; border-radius: 18px; background: rgba(32,33,36,.86); color: #fff; font-size: 12.5px;
+          white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
+  #toast { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 40; display: none;
+           max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border-radius: 8px;
+           background: #202124; color: #fff; box-shadow: var(--shadow); }
+  #toast.err { background: var(--danger); }
+  #busy { position: fixed; inset: 0; z-index: 50; display: none; cursor: progress; }
+  #busy::after { content: ""; position: fixed; top: 64px; right: 20px; width: 22px; height: 22px;
+                 border: 3px solid var(--accent); border-right-color: transparent; border-radius: 50%;
+                 animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 640px) {
+    .logo { display: none; }
+    .btn { padding: 0 10px; }
+    #tb { left: 8px !important; right: 8px; flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">PDF <span>Düzenle</span></div>
+  <button class="btn" id="openBtn">📂 PDF aç</button>
+  <div class="fname" id="fname"></div>
+  <div class="grow"></div>
+  <button class="btn" id="undoBtn" disabled title="Geri al (⌘Z)">↶ Geri al</button>
+  <button class="btn primary" id="dlBtn" disabled>⬇ İndir</button>
+  <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+</header>
+
+<div id="empty">
+  <div class="drop" id="drop">
+    <div class="big">📄</div>
+    <h1>PDF'i buraya sürükle</h1>
+    <p>ya da tıklayıp seç</p>
+  </div>
+</div>
+
+<div id="pages"></div>
+
+<div id="tb">
+  <span class="count" id="tbCount"></span>
+  <input type="text" id="tbFamily" list="families" placeholder="Font" title="Font">
+  <datalist id="families"></datalist>
+  <input type="number" id="tbSize" min="2" max="300" step="0.5" title="Boyut (pt)">
+  <div class="sep"></div>
+  <button class="ic" id="tbBold" title="Kalın"><b>B</b></button>
+  <button class="ic" id="tbItalic" title="İtalik"><i>I</i></button>
+  <input type="color" id="tbColor" title="Renk">
+  <div class="sep"></div>
+  <button class="ic" id="tbEdit" title="Yazıyı düzenle (çift tık)">✏️</button>
+  <button class="ic del" id="tbDel" title="Sil (Delete)">🗑</button>
+</div>
+
+<div id="hint">Tıkla: seç · Seçiliyi sürükle ya da ok tuşları: taşı · Boşluktan sürükle / Shift: çoklu seç · Çift tıkla: düzenle · Boş yere çift tıkla: yazı ekle</div>
+<div id="toast"></div>
+<div id="busy"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = {
+  doc: null,              // {name, pages:[{w,h}], ver, canUndo, dirty}
+  spans: {},              // sayfa -> span listesi
+  sel: new Map(),         // "sayfa:id" -> {page, id}
+  scale: 1.5,
+  style: { family: "Arial", bold: false, italic: false, size: 12, color: "#000000" },
+  fonts: new Map(),       // aile adı -> {bold, italic, turkish}
+};
+
+// ---------------------------------------------------------------- yardımcılar
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  const isJson = (r.headers.get("content-type") || "").includes("json");
+  const body = isJson ? await r.json() : null;
+  if (!r.ok) throw new Error((body && body.error) || `Hata (${r.status})`);
+  return body;
+}
+async function busy(fn) {
+  $("busy").style.display = "block";
+  try { return await fn(); }
+  catch (e) { toast(e.message, true); }
+  finally { $("busy").style.display = "none"; }
+}
+let toastTimer;
+function toast(msg, err = false) {
+  const t = $("toast");
+  t.textContent = msg; t.className = err ? "err" : ""; t.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.style.display = "none"), err ? 5000 : 2200);
+}
+const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+// ---------------------------------------------------------------- fontlar
+async function loadFonts() {
+  const r = await api("/api/fonts");
+  const dl = $("families");
+  for (const f of r.families) {
+    state.fonts.set(f.name, f);
+    const o = document.createElement("option");
+    o.value = f.name;
+    if (!f.turkish) o.label = "Türkçe harf yok";
+    dl.appendChild(o);
+  }
+  state.style.family = r.default;
+}
+
+// ---------------------------------------------------------------- belge
+async function openFile(file) {
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") return toast("Sadece PDF dosyası açılabilir.", true);
+  await busy(async () => {
+    const fd = new FormData(); fd.append("file", file);
+    const info = await api("/api/open", { method: "POST", body: fd });
+    clearSel();
+    setDoc(info, true);
+  });
+}
+
+function setDoc(info, rebuild) {
+  const prevVer = state.doc && state.doc.ver;
+  state.doc = info;
+  $("fname").textContent = info.name;
+  $("undoBtn").disabled = !info.canUndo;
+  $("dlBtn").disabled = !info.dirty;
+  $("empty").style.display = "none";
+  $("pages").style.display = "flex";
+  $("hint").style.display = "block";
+  if (rebuild) buildPages();
+  else if (prevVer !== info.ver) return info;
+  return info;
+}
+
+function fitScale() {
+  const maxW = Math.max(...state.doc.pages.map((p) => p.w));
+  return Math.min(1.5, (window.innerWidth - 40) / maxW);
+}
+
+function buildPages() {
+  const wrap = $("pages");
+  wrap.innerHTML = "";
+  state.spans = {};
+  state.scale = fitScale();
+  state.doc.pages.forEach((p, i) => {
+    const n = i + 1;
+    const div = document.createElement("div");
+    div.className = "page"; div.dataset.page = n;
+    div.style.width = p.w * state.scale + "px";
+    div.style.height = p.h * state.scale + "px";
+    div.innerHTML = `<img alt="Sayfa ${n}" loading="lazy"><div class="layer"></div><div class="num">${n} / ${state.doc.pages.length}</div>`;
+    wrap.appendChild(div);
+    observer.observe(div);
+  });
+}
+
+// sayfalar görünür olunca yüklenir
+const observer = new IntersectionObserver((entries) => {
+  for (const e of entries) if (e.isIntersecting) loadPage(+e.target.dataset.page);
+}, { rootMargin: "600px" });
+
+async function loadPage(n, force = false) {
+  const div = document.querySelector(`.page[data-page="${n}"]`);
+  if (!div) return;
+  const ver = state.doc.ver;
+  if (!force && div.dataset.ver == ver) return;
+  div.dataset.ver = ver;
+  const z = Math.min(3, Math.max(1.5, state.scale * (window.devicePixelRatio || 1)));
+  div.querySelector("img").src = `/api/page/${n}.png?v=${ver}&z=${z.toFixed(2)}`;
+  try {
+    state.spans[n] = await api(`/api/page/${n}/spans`);
+  } catch (e) { state.spans[n] = []; }
+  drawSpans(n);
+}
+
+function reloadAll() {
+  document.querySelectorAll(".page").forEach((d) => (d.dataset.ver = ""));
+  document.querySelectorAll(".page").forEach((d) => {
+    const r = d.getBoundingClientRect();
+    if (r.bottom > -600 && r.top < window.innerHeight + 600) loadPage(+d.dataset.page);
+  });
+}
+
+function drawSpans(n) {
+  const layer = document.querySelector(`.page[data-page="${n}"] .layer`);
+  if (!layer) return;
+  layer.querySelectorAll(".sp").forEach((e) => e.remove());
+  const s = state.scale;
+  for (const sp of state.spans[n] || []) {
+    const [x0, y0, x1, y1] = sp.bbox;
+    const el = document.createElement("div");
+    el.className = "sp" + (state.sel.has(`${n}:${sp.id}`) ? " sel" : "");
+    el.dataset.id = sp.id;
+    Object.assign(el.style, { left: x0 * s + "px", top: y0 * s + "px", width: (x1 - x0) * s + "px", height: (y1 - y0) * s + "px" });
+    el.title = `${sp.family}${sp.bold ? " Kalın" : ""}${sp.italic ? " İtalik" : ""} · ${sp.size} pt`;
+    layer.appendChild(el);
+  }
+}
+
+// ---------------------------------------------------------------- seçim
+const spanOf = (page, id) => (state.spans[page] || []).find((s) => s.id === id);
+
+function clearSel() {
+  state.sel.clear();
+  document.querySelectorAll(".sp.sel").forEach((e) => e.classList.remove("sel"));
+  updateToolbar();
+}
+function toggleSel(page, id, additive) {
+  const key = `${page}:${id}`;
+  if (!additive) clearSel();
+  if (additive && state.sel.has(key)) state.sel.delete(key);
+  else state.sel.set(key, { page, id });
+  refreshSelClasses();
+}
+function refreshSelClasses() {
+  document.querySelectorAll(".page").forEach((d) => {
+    const n = +d.dataset.page;
+    d.querySelectorAll(".sp").forEach((el) => el.classList.toggle("sel", state.sel.has(`${n}:${el.dataset.id}`)));
+  });
+  updateToolbar();
+}
+function selectedSpans() {
+  return [...state.sel.values()].map((v) => ({ ...v, sp: spanOf(v.page, v.id) })).filter((v) => v.sp);
+}
+async function selectAll() {
+  await busy(async () => {
+    for (let n = 1; n <= state.doc.pages.length; n++) {
+      if (!state.spans[n]) state.spans[n] = await api(`/api/page/${n}/spans`);
+      for (const sp of state.spans[n]) state.sel.set(`${n}:${sp.id}`, { page: n, id: sp.id });
+    }
+  });
+  refreshSelClasses();
+}
+
+// ---------------------------------------------------------------- araç çubuğu
+function common(list, key) {
+  const vals = new Set(list.map((v) => v.sp[key]));
+  return vals.size === 1 ? [...vals][0] : null;
+}
+function updateToolbar() {
+  const tb = $("tb");
+  const sel = selectedSpans();
+  if (!sel.length) { tb.style.display = "none"; return; }
+  const fam = common(sel, "family"), size = common(sel, "size"), color = common(sel, "color");
+  $("tbFamily").value = fam ?? "";
+  $("tbFamily").placeholder = fam ? "Font" : "Karışık";
+  $("tbSize").value = size ?? "";
+  $("tbColor").value = color ?? "#000000";
+  $("tbBold").classList.toggle("on", sel.every((v) => v.sp.bold));
+  $("tbItalic").classList.toggle("on", sel.every((v) => v.sp.italic));
+  $("tbEdit").style.display = sel.length === 1 ? "" : "none";
+  $("tbCount").textContent = sel.length > 1 ? `${sel.length} parça` : "";
+  if (fam) Object.assign(state.style, { family: fam, size: size ?? state.style.size, color: color ?? state.style.color });
+  tb.style.display = "flex";
+  placeToolbar(sel);
+}
+function placeToolbar(sel = selectedSpans()) {
+  const tb = $("tb");
+  if (!sel.length || tb.style.display === "none") return;
+  // ilk görünen seçili parçanın üstüne koy
+  let rect = null;
+  for (const v of sel) {
+    const el = document.querySelector(`.page[data-page="${v.page}"] .sp[data-id="${v.id}"]`);
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    if (r.bottom > 56 && r.top < window.innerHeight) { rect = r; break; }
+  }
+  if (!rect) { tb.style.top = "66px"; tb.style.left = Math.max(8, (window.innerWidth - tb.offsetWidth) / 2) + "px"; return; }
+  let top = rect.top - tb.offsetHeight - 10;
+  if (top < 64) top = rect.bottom + 10;
+  const left = Math.min(Math.max(8, rect.left), window.innerWidth - tb.offsetWidth - 8);
+  tb.style.top = top + "px"; tb.style.left = left + "px";
+}
+
+function targets() {
+  const byPage = {};
+  for (const { page, id } of state.sel.values()) (byPage[page] ||= []).push(id);
+  return Object.entries(byPage).map(([page, ids]) => ({ page: +page, ids }));
+}
+
+async function applyEdit(change) {
+  const tg = targets();
+  if (!tg.length) return;
+  await busy(async () => {
+    const info = await post("/api/edit", { targets: tg, ...change });
+    await afterChange(info, tg.map((t) => t.page), !change.delete, change.dx || 0, change.dy || 0);
+  });
+}
+
+// değişiklikten sonra: sayfaları yenile, seçimi koru (silme hariç)
+async function afterChange(info, pages, keepSel, dx = 0, dy = 0) {
+  const oldSel = selectedSpans();
+  setDoc(info, false);
+  clearSel();
+  await Promise.all(pages.map((n) => loadPage(n, true)));
+  reloadAll();
+  if (keepSel) {
+    // yeni sayfada aynı konumdaki parçaları yeniden seç
+    for (const v of oldSel) {
+      const x0 = v.sp.bbox[0] + dx, y1 = v.sp.bbox[3] + dy;
+      const hit = (state.spans[v.page] || []).find((s) => Math.abs(s.bbox[0] - x0) < 2 && Math.abs(s.bbox[3] - y1) < 6 + v.sp.size);
+      if (hit) state.sel.set(`${v.page}:${hit.id}`, { page: v.page, id: hit.id });
+    }
+    refreshSelClasses();
+  }
+}
+
+$("tbFamily").addEventListener("change", (e) => {
+  const fam = e.target.value.trim();
+  const match = [...state.fonts.keys()].find((k) => k.toLowerCase() === fam.toLowerCase());
+  if (!match) { toast(`“${fam}” adında yüklü font yok.`, true); updateToolbar(); return; }
+  state.style.family = match;
+  applyEdit({ family: match });
+});
+$("tbSize").addEventListener("change", (e) => {
+  const v = parseFloat(e.target.value);
+  if (v > 0) { state.style.size = v; applyEdit({ size: v }); }
+});
+$("tbColor").addEventListener("change", (e) => { state.style.color = e.target.value; applyEdit({ color: e.target.value }); });
+$("tbBold").addEventListener("click", () => {
+  const on = !$("tbBold").classList.contains("on"); state.style.bold = on; applyEdit({ bold: on });
+});
+$("tbItalic").addEventListener("click", () => {
+  const on = !$("tbItalic").classList.contains("on"); state.style.italic = on; applyEdit({ italic: on });
+});
+$("tbDel").addEventListener("click", () => applyEdit({ delete: true }));
+$("tbEdit").addEventListener("click", () => {
+  const [v] = selectedSpans();
+  if (v) startInlineEdit(v.page, v.sp);
+});
+
+// ---------------------------------------------------------------- yerinde düzenleme
+let editing = null;
+function cssFont(sp, family) {
+  return `${sp.italic ? "italic " : ""}${sp.bold ? "700 " : ""}${sp.size * state.scale}px "${family}", sans-serif`;
+}
+function makeInput(page, x, y, h, sp, value, onCommit) {
+  closeInline(false);
+  const layer = document.querySelector(`.page[data-page="${page}"] .layer`);
+  const inp = document.createElement("input");
+  inp.className = "inline-edit"; inp.value = value;
+  inp.style.left = x + "px"; inp.style.top = y + "px"; inp.style.height = h + "px";
+  inp.style.font = cssFont(sp, sp.family); inp.style.color = sp.color;
+  const fit = () => (inp.style.width = Math.max(60, (inp.value.length + 2) * sp.size * state.scale * 0.55) + "px");
+  fit(); inp.addEventListener("input", fit);
+  layer.appendChild(inp);
+  inp.focus(); inp.select();
+  editing = { inp, onCommit, original: value };
+  inp.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); closeInline(true); }
+    if (e.key === "Escape") closeInline(false);
+  });
+  inp.addEventListener("blur", () => setTimeout(() => editing && editing.inp === inp && closeInline(true), 0));
+}
+function closeInline(commit) {
+  if (!editing) return;
+  const { inp, onCommit, original } = editing;
+  editing = null;
+  inp.remove();
+  if (commit && inp.value !== original) onCommit(inp.value);
+}
+function startInlineEdit(page, sp) {
+  const s = state.scale, [x0, y0, x1, y1] = sp.bbox;
+  if (sp.rotated) return toast("Dönük metin düzenlenemiyor.", true);
+  makeInput(page, x0 * s, y0 * s, (y1 - y0) * s, sp, sp.text, (text) => {
+    state.sel.clear(); state.sel.set(`${page}:${sp.id}`, { page, id: sp.id });
+    if (!text.trim()) applyEdit({ delete: true }); else applyEdit({ text });
+  });
+}
+function startAddText(page, xPt, yPt) {
+  const s = state.scale, st = state.style;
+  const fake = { family: st.family, bold: st.bold, italic: st.italic, size: st.size, color: st.color };
+  makeInput(page, xPt * s, (yPt - st.size * 0.8) * s, st.size * 1.15 * s, fake, "", (text) => {
+    if (!text.trim()) return;
+    busy(async () => {
+      const info = await post("/api/add", { page, x: xPt, y: yPt, text, ...st });
+      clearSel();
+      await afterChange(info, [page], false);
+      // eklenen yazıyı seçili getir
+      const hit = (state.spans[page] || []).find((sp) => Math.abs(sp.bbox[0] - xPt) < 3 && sp.text.trim() === text.trim());
+      if (hit) { state.sel.set(`${page}:${hit.id}`, { page, id: hit.id }); refreshSelClasses(); }
+    });
+  });
+  editing.inp.placeholder = "Yaz, Enter'a bas";
+}
+
+// ---------------------------------------------------------------- fare
+let drag = null;
+let move = null;
+
+// taşıma: seçili parçaların sayfa görüntüsünden kesilmiş kopyaları fareyi izler
+function startMove() {
+  move.started = true;
+  document.body.classList.add("moving");
+  $("tb").style.display = "none";
+  const s = state.scale;
+  for (const v of selectedSpans()) {
+    const pageDiv = document.querySelector(`.page[data-page="${v.page}"]`);
+    const el = pageDiv && pageDiv.querySelector(`.sp[data-id="${v.id}"]`);
+    if (!el) continue;
+    const [x0, y0, x1, y1] = v.sp.bbox, pad = 2;
+    const g = document.createElement("div");
+    g.className = "ghost";
+    Object.assign(g.style, {
+      left: x0 * s - pad + "px", top: y0 * s - pad + "px",
+      width: (x1 - x0) * s + 2 * pad + "px", height: (y1 - y0) * s + 2 * pad + "px",
+      backgroundImage: `url("${pageDiv.querySelector("img").src}")`,
+      backgroundSize: `${pageDiv.offsetWidth}px ${pageDiv.offsetHeight}px`,
+      backgroundPosition: `${-(x0 * s - pad)}px ${-(y0 * s - pad)}px`,
+    });
+    pageDiv.querySelector(".layer").appendChild(g);
+    el.classList.add("lifted");
+    move.ghosts.push({ g, el });
+  }
+}
+function endMove(cancel) {
+  const m = move; move = null;
+  document.body.classList.remove("moving");
+  for (const { g, el } of m.ghosts) { g.remove(); el.classList.remove("lifted"); }
+  if (cancel || !m.started) { updateToolbar(); return; }
+  const dx = m.dx / state.scale, dy = m.dy / state.scale;
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) { updateToolbar(); return; }
+  applyEdit({ dx: +dx.toFixed(2), dy: +dy.toFixed(2) });
+}
+
+// ok tuşlarıyla ince ayar: 1 pt (Shift ile 10 pt); kısa süre biriktirip tek seferde uygular
+let nudge = { dx: 0, dy: 0, t: null };
+function nudgeBy(dx, dy) {
+  nudge.dx += dx; nudge.dy += dy;
+  const s = state.scale;
+  document.querySelectorAll(".sp.sel").forEach((el) => (el.style.transform = `translate(${nudge.dx * s}px, ${nudge.dy * s}px)`));
+  clearTimeout(nudge.t);
+  nudge.t = setTimeout(() => {
+    const { dx: ndx, dy: ndy } = nudge;
+    nudge = { dx: 0, dy: 0, t: null };
+    document.querySelectorAll(".sp").forEach((el) => (el.style.transform = ""));
+    if (ndx || ndy) applyEdit({ dx: ndx, dy: ndy });
+  }, 450);
+}
+
+$("pages").addEventListener("mousedown", (e) => {
+  if (e.button !== 0 || e.target.classList.contains("inline-edit")) return;
+  const pageDiv = e.target.closest(".page");
+  if (!pageDiv) { if (!e.shiftKey) clearSel(); return; }
+  const page = +pageDiv.dataset.page;
+  if (e.target.classList.contains("sp")) {
+    const id = +e.target.dataset.id, additive = e.shiftKey || e.metaKey || e.ctrlKey;
+    const wasSel = state.sel.has(`${page}:${id}`);
+    if (additive) { toggleSel(page, id, true); if (wasSel) return; }
+    else if (!wasSel) toggleSel(page, id, false);
+    // seçili kutuyu sürükleyerek taşı
+    e.preventDefault();
+    move = { x: e.clientX, y: e.clientY, dx: 0, dy: 0, started: false, ghosts: [] };
+    return;
+  }
+  // boş alanda sürükleyerek çoklu seçim
+  const layer = pageDiv.querySelector(".layer");
+  const r = layer.getBoundingClientRect();
+  drag = { page, layer, x: e.clientX - r.left, y: e.clientY - r.top, band: null, additive: e.shiftKey };
+});
+window.addEventListener("mousemove", (e) => {
+  if (move) {
+    move.dx = e.clientX - move.x; move.dy = e.clientY - move.y;
+    if (!move.started && Math.hypot(move.dx, move.dy) < 4) return;
+    if (!move.started) startMove();
+    for (const { g } of move.ghosts) g.style.transform = `translate(${move.dx}px, ${move.dy}px)`;
+    return;
+  }
+  if (!drag) return;
+  const r = drag.layer.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  if (!drag.band && Math.hypot(x - drag.x, y - drag.y) < 4) return;
+  if (!drag.band) { drag.band = document.createElement("div"); drag.band.className = "band"; drag.layer.appendChild(drag.band); }
+  Object.assign(drag.band.style, { left: Math.min(x, drag.x) + "px", top: Math.min(y, drag.y) + "px",
+    width: Math.abs(x - drag.x) + "px", height: Math.abs(y - drag.y) + "px" });
+  drag.x2 = x; drag.y2 = y;
+});
+window.addEventListener("mouseup", () => {
+  if (move) return endMove(false);
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (!d.band) { if (!d.additive) clearSel(); return; }
+  d.band.remove();
+  const s = state.scale;
+  const bx0 = Math.min(d.x, d.x2) / s, bx1 = Math.max(d.x, d.x2) / s;
+  const by0 = Math.min(d.y, d.y2) / s, by1 = Math.max(d.y, d.y2) / s;
+  if (!d.additive) clearSel();
+  for (const sp of state.spans[d.page] || []) {
+    const [x0, y0, x1, y1] = sp.bbox;
+    if (x0 < bx1 && x1 > bx0 && y0 < by1 && y1 > by0) state.sel.set(`${d.page}:${sp.id}`, { page: d.page, id: sp.id });
+  }
+  refreshSelClasses();
+});
+$("pages").addEventListener("dblclick", (e) => {
+  const pageDiv = e.target.closest(".page");
+  if (!pageDiv || e.target.classList.contains("inline-edit")) return;
+  const page = +pageDiv.dataset.page;
+  if (e.target.classList.contains("sp")) {
+    const sp = spanOf(page, +e.target.dataset.id);
+    if (sp) startInlineEdit(page, sp);
+    return;
+  }
+  const r = pageDiv.querySelector(".layer").getBoundingClientRect();
+  const s = state.scale;
+  clearSel();
+  // tıklanan nokta yazının ortası olsun: taban çizgisi biraz aşağıda
+  startAddText(page, (e.clientX - r.left) / s, (e.clientY - r.top) / s + state.style.size * 0.35);
+});
+
+// ---------------------------------------------------------------- klavye
+window.addEventListener("keydown", (e) => {
+  if (editing || e.target.closest("#tb")) return;
+  if (!state.doc) return;
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
+  else if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); selectAll(); }
+  else if ((e.key === "Delete" || e.key === "Backspace") && state.sel.size) { e.preventDefault(); applyEdit({ delete: true }); }
+  else if (e.key === "Escape") { if (move) endMove(true); else clearSel(); }
+  else if (e.key.startsWith("Arrow") && state.sel.size) {
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    nudgeBy(...d);
+  }
+  else if (e.key === "Enter" && state.sel.size === 1) {
+    const [v] = selectedSpans(); if (v) { e.preventDefault(); startInlineEdit(v.page, v.sp); }
+  }
+});
+
+// ---------------------------------------------------------------- üst çubuk
+async function undo() {
+  if (!state.doc || !state.doc.canUndo) return;
+  await busy(async () => {
+    const info = await post("/api/undo", {});
+    clearSel(); setDoc(info, false); reloadAll();
+    toast("Geri alındı");
+  });
+}
+$("undoBtn").addEventListener("click", undo);
+$("dlBtn").addEventListener("click", () => (location.href = "/api/download"));
+$("openBtn").addEventListener("click", () => {
+  if (state.doc && state.doc.dirty && !confirm("Kaydedilmemiş değişiklikler kaybolacak. Yeni PDF açılsın mı?")) return;
+  $("file").click();
+});
+$("drop").addEventListener("click", () => $("file").click());
+$("file").addEventListener("change", (e) => { openFile(e.target.files[0]); e.target.value = ""; });
+
+["dragenter", "dragover"].forEach((t) => window.addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => window.addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+window.addEventListener("drop", (e) => {
+  const f = e.dataTransfer.files[0];
+  if (!f) return;
+  if (state.doc && state.doc.dirty && !confirm("Kaydedilmemiş değişiklikler kaybolacak. Yeni PDF açılsın mı?")) return;
+  openFile(f);
+});
+window.addEventListener("beforeunload", (e) => { if (state.doc && state.doc.dirty) e.preventDefault(); });
+window.addEventListener("scroll", () => placeToolbar(), { passive: true });
+let resizeT;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => {
+    if (!state.doc) return;
+    const s = fitScale();
+    if (Math.abs(s - state.scale) < 0.01) return placeToolbar();
+    state.scale = s;
+    document.querySelectorAll(".page").forEach((d) => {
+      const p = state.doc.pages[+d.dataset.page - 1];
+      d.style.width = p.w * s + "px"; d.style.height = p.h * s + "px";
+      drawSpans(+d.dataset.page);
+    });
+    refreshSelClasses();
+  }, 150);
+});
+
+// ---------------------------------------------------------------- başlangıç
+loadFonts().catch(() => {});
+api("/api/doc").then((info) => setDoc(info, true)).catch(() => {});
+</script>
+</body>
+</html>
